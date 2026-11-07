@@ -1,0 +1,41 @@
+name: FINRA daily short volume
+# Downloads FINRA's consolidated daily short-sale volume files (off-exchange / dark pool volume of every US stock)
+# in GitHub's US cloud and keeps them in data/ as CNMSshvol<YYYYMMDD>.txt.gz for the % Change Scanner (finra_mirror).
+on:
+  schedule:
+    - cron: "20 23 * * 1-5"   # 23:20 UTC = 6:20 pm New York (winter) / 7:20 pm (summer), Mon-Fri
+    - cron: "40 3 * * 2-6"    # second try 3:40 UTC (late files, corrections)
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the last 60 days that are missing
+        run: |
+          mkdir -p data
+          got=0
+          for i in $(seq 0 60); do
+            d=$(date -u -d "-$i day" +%Y%m%d)
+            [ "$(date -u -d "-$i day" +%u)" -ge 6 ] && continue
+            f="data/CNMSshvol$d.txt.gz"
+            [ -f "$f" ] && [ "$i" -gt 1 ] && continue
+            if curl -sfL --retry 3 --max-time 60 -A "Mozilla/5.0" \
+                 "https://cdn.finra.org/equity/regsho/daily/CNMSshvol$d.txt" -o /tmp/x.txt \
+               && head -c 300 /tmp/x.txt | grep -q '|'; then
+              gzip -9nc /tmp/x.txt > "$f"; got=$((got+1)); echo "got $d"
+            fi
+          done
+          ls data | grep '^CNMSshvol' | sort | head -n -120 | sed 's|^|data/|' | xargs -r rm -f
+          ls data | grep '^CNMSshvol' | sort > data/index.txt
+          echo "downloaded $got file(s)"
+      - name: Save to the repository
+        run: |
+          git config user.name "finra-bot"
+          git config user.email "finra-bot@users.noreply.github.com"
+          git add -A data
+          git diff --cached --quiet && echo "nothing new" && exit 0
+          git commit -m "FINRA files $(date -u +%F)"
+          git push
