@@ -13,11 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download the last 60 days that are missing
+      - name: Download every missing day since 2026-01-02
         run: |
           mkdir -p data
           got=0
-          for i in $(seq 0 60); do
+          n=$(( ( $(date -u +%s) - $(date -u -d 2026-01-02 +%s) ) / 86400 ))
+          for i in $(seq 0 $n); do
             d=$(date -u -d "-$i day" +%Y%m%d)
             [ "$(date -u -d "-$i day" +%u)" -ge 6 ] && continue
             f="data/CNMSshvol$d.txt.gz"
@@ -28,7 +29,6 @@ jobs:
               gzip -9nc /tmp/x.txt > "$f"; got=$((got+1)); echo "got $d"
             fi
           done
-          ls data | grep '^CNMSshvol' | sort | head -n -120 | sed 's|^|data/|' | xargs -r rm -f
           ls data | grep '^CNMSshvol' | sort > data/index.txt
           echo "downloaded $got file(s)"
       - name: Save to the repository
